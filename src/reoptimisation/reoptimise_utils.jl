@@ -154,13 +154,15 @@ function run_reoptimisation_imperfect_foresight(m, res, sys, start_idx, end_idx,
 
     @assert move_forward_max <= optimisation_window "Error: move_forward should be less than or equal to the optimisation window to ensure that the model is updated with the new availability information at each step."
 
-    # Return object to store the load shedding results
-    load_shedding = zeros(Int, length(sys.regions.names), end_idx - start_idx + 1)
+    # Return object to store the results
+    #load_shedding = zeros(Int, length(sys.regions.names), end_idx - start_idx + 1)
+    res_out = SchedData(sys; N=end_idx - start_idx + 1)
     
     # Get the initial model parameters from the res object values
     initial_soc_stor, initial_soc_genstor, p_gen_initial, gon_initial, stup_before, shdw_before, gen_fail_before = get_system_parameters(res, start_idx, optimisation_window, m[:genOpDetails], genAvSample)      
 
     # Initial parameters for DSP maxEnergy constraint (assume that normal operation doesn't lead to DSP activation)
+    # TODO: Remove these assumptions and get the values from the res_out
     drs_borrow_before = []
     drs_remaining_energy_included_time = 0
 
@@ -187,6 +189,16 @@ function run_reoptimisation_imperfect_foresight(m, res, sys, start_idx, end_idx,
 
         # Optimize the model
         optimize!(m)
+
+        # Optional - temporary plotting to check the results at each step
+        #plot_timeseries_results(m, sys; region=[5,6,7,8], title="Start_idx: $t")
+        #Plots.xticks!(1:2:length(t:t_end), string.(t:2:t_end))
+        #Plots.xlims!(0.5, length(t:t_end)+0.5)
+        #Plots.savefig("./_temp/dispatch_start_idx_$(t).png")
+        #println("Storage energy for region 7 at $t: $(sum(value.(m[:e_stor])[:,1]))")
+        #non_tas_genstors = setdiff(1:length(sys.generatorstorages.names), sys.region_genstor_idxs[10]) 
+        #println("GenStor energy for all: $(sum(value.(m[:e_genstor])[non_tas_genstors,1]))")
+        #println("DSP 35 borrowing $t - $(t_end): \n", value.(m[:p_borrow_drs])[sys.region_dr_idxs[7][5],1:(t_end - t + 1)])
         
         if !is_solved_and_feasible(m)
             @warn "Optimization failed for $t - $t_end (full window: $start_idx - $end_idx). Ending simulation for this horizon and returning load shedding results. Conflicting constraints:"
@@ -198,14 +210,17 @@ function run_reoptimisation_imperfect_foresight(m, res, sys, start_idx, end_idx,
                 print(iis_model)
             end
 
-            return load_shedding
+            return res_out
         end
 
         # =========================================================
         # READ OUT RESULTS AND GET NEXT STEP
 
+        res_temp = get_results(m)
+        res_out = update_SchedData!(res_out, t - start_idx + 1:t_end - start_idx + 1, res_temp, 1:(t_end - t + 1))
+
         # Read out load shedding for the whole optimisation window
-        load_shedding[:,(t - start_idx + 1):(t_end - start_idx + 1)] = round.(Int, value.(m[:load_shedding][:, 1:(t_end - t + 1)]))
+        #load_shedding[:,(t - start_idx + 1):(t_end - start_idx + 1)] = round.(Int, value.(m[:load_shedding][:, 1:(t_end - t + 1)]))
 
         # Find the next time step for the simualation
         if isnothing(findfirst(statechange_times_sample .> t))
@@ -226,7 +241,7 @@ function run_reoptimisation_imperfect_foresight(m, res, sys, start_idx, end_idx,
         # UPDATE THE INITIAL CONDITIONS FOR THE NEXT OPTIMISATION BASED ON THE RESULTS OF THIS OPTIMISATION
 
         # Extract the results from the solution
-        res_temp = get_results(m)
+        #res_temp = get_results(m)
 
         # Get the initial state of charge for storages and generator-storages from the results
         if m[:Nstors] > 0
@@ -270,5 +285,5 @@ function run_reoptimisation_imperfect_foresight(m, res, sys, start_idx, end_idx,
         # Then go back to the start of the loop and run the next optimisation with the updated initial conditions and availability information
     end
 
-    return load_shedding
+    return res_out
 end

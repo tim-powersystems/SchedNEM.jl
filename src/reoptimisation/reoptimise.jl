@@ -28,14 +28,17 @@ Parameters:
 
 """
 function reoptimise(df_expectation, sys, res_input, genAvSamples, lineAvSamples; 
-    default_horizon::Int=4, min_time_after_event::Int=4,
+    default_horizon::Int=4, min_time_after_event::Int=4, 
     optimisation_window::Int=48, move_forward::Int=24,
-    optimiser_name="HiGHS", input_folder::String="",
-    DER_parameters=PRASNEM.get_DER_parameters(), 
-    hydro_parameters=PRASNEM.get_hydro_parameters(),
-    genOpDetails=(uc=true, ramping=true, binary=false),
+    optimiser_name::String="HiGHS", input_folder::String="",
+    DER_parameters::Dict=PRASNEM.get_DER_parameters(), 
+    hydro_parameters::Dict=PRASNEM.get_hydro_parameters(),
+    genOpDetails::NamedTuple=(uc=true, ramping=true, binary=false),
     max_extend_simulations::Int=10,
-    imperfect_foresight=true)
+    imperfect_foresight::Bool=true,
+    saving_details::Tuple=(:shortfall,),
+    select_samples::Vector{Int}=Int[],
+    select_start::Int=0)
 
     @info "Reoptimising all events with a horizon of > $default_horizon hours to assess system response."
 
@@ -58,7 +61,11 @@ function reoptimise(df_expectation, sys, res_input, genAvSamples, lineAvSamples;
 
     # Initialise the output
     # TODO: Make this a sparse object (e.g. via SparseArrayKit) to save memory!
-    load_shedding_output = zeros(Int, Nregions, N, Nsamples);
+    #load_shedding_output = zeros(Int, Nregions, N, Nsamples);
+    if !( :shortfall in saving_details )
+        saving_details = push!(saving_details, :shortfall)
+    end
+    sched_change_output = SchedChangeData(sys; N=N, Nsamples=Nsamples, include_fields=saving_details)
 
     # Initialise a counter for the total amount of (extended) simulations (for reporting at the end)
     total_number_of_simulations = 0
@@ -80,17 +87,35 @@ function reoptimise(df_expectation, sys, res_input, genAvSamples, lineAvSamples;
 
     # Build the model once for the horizon and then update the parameters for each event
     m = build_operation_model(sys; optimisation_window=optimisation_window, move_forward=move_forward,
-        input_folder=input_folder, optimiser=optimiser, DER_parameters=DER_parameters, genOpDetails=genOpDetails)
-    
+        input_folder=input_folder, optimiser=optimiser, 
+        genOpDetails=genOpDetails,
+        DER_parameters=DER_parameters, 
+        hydro_parameters=hydro_parameters)
+
     for sample in 1:Nsamples
-        if sample % 10 == 0
+        if sample % 1 == 0
             println("     $sample/$Nsamples")
+        end
+
+        # If reoptimisation is only desired for a selection of samples, skip the samples that are not in the selection
+        if !isempty(select_samples) && !(sample in select_samples)
+            sched_change_output.shortfall[:,:,sample] .= -1 # Set the shortfall for the non-selected samples to -1 to indicate that these were not simulated
+            #load_shedding_output[:,:,sample] .= -1 # Set the load shedding output for the non-selected samples to -1 to indicate that these were not simulated
+            continue
         end
 
         # Run the re-optimisation for this sample for all the simulation windows and save the load shedding results
         for j in 1:length(all_simulation_times[sample].start_idxs)
             start_idx = all_simulation_times[sample].start_idxs[j]
             end_idx = all_simulation_times[sample].end_idxs[j]
+            @debug "Running re-optimisation for sample $sample and simulation window $start_idx - $end_idx."
+
+            if start_idx < select_start
+                #@debug "Running re-optimisation for sample $sample and simulation window $start_idx - $end_idx. This window is outside of the selected time range, but will still be simulated since the sample is in the selected samples."
+                continue
+            end
+            #    println("  Running re-optimisation for sample $sample and simulation window $start_idx - $end_idx.")
+            #end
 
             flag_merged_with_next = false
             total_number_of_simulations += 1
@@ -103,10 +128,12 @@ function reoptimise(df_expectation, sys, res_input, genAvSamples, lineAvSamples;
 
             
             # Now check if load shedding is still happening at the end of the simulation window
-            len_temp = size(temp)[2]
-            if sum(temp[:, end-min(min_time_after_event, len_temp)+1:end]) == 0 || (end_idx >= N)
+            len_temp = get_params(temp)[1]
+            if sum(temp.shortfall[:, end-min(min_time_after_event, len_temp)+1:end]) == 0 || (end_idx >= N)
                 # Save the load shedding results if no load shedding at the end or at end of the timeseries
-                load_shedding_output[:, start_idx:end_idx, sample] = temp
+                #load_shedding_output[:, start_idx:end_idx, sample] = temp
+                # PARAMETERS: (res::SchedChangeData, original_res::SchedData, idxs_update, res_window, idxs_window, idx_sample)
+                update_SchedChangeData!(sched_change_output, res_input, start_idx:end_idx, temp, 1:(end_idx - start_idx + 1), sample)
             else
                 # Calculate the start of the next simulation window
                 next_start = j < length(all_simulation_times[sample].start_idxs) ? all_simulation_times[sample].start_idxs[j+1] : N+1
@@ -144,16 +171,17 @@ function reoptimise(df_expectation, sys, res_input, genAvSamples, lineAvSamples;
                     end
 
                     # Save the load shedding results for the extended window (do this every time in case next simulation window fails)
-                    load_shedding_output[:, start_idx:end_idx_extended, sample] = temp
+                    update_SchedChangeData!(sched_change_output, res_input, start_idx:end_idx_extended, temp, 1:(end_idx_extended - start_idx + 1), sample)
+                    #load_shedding_output[:, start_idx:end_idx_extended, sample] = temp
 
                     # Check if load shedding is still happening at the end of the extended simulation window
-                    if sum(temp[:, end-min_time_after_event+1:end]) == 0 || (end_idx_extended == N)
+                    if sum(temp.shortfall[:, end-min_time_after_event+1:end]) == 0 || (end_idx_extended == N)
                         println("      Done. New window ended at $(end_idx_extended).")
                         break
                     end
                 end # End of loop to extend the simulation window
 
-                if (sum(temp[:, end-min_time_after_event+1:end]) > 0) && (!flag_merged_with_next) # If we extended and didnt merge with the next sample
+                if (sum(temp.shortfall[:, end-min_time_after_event+1:end]) > 0) && (!flag_merged_with_next) # If we extended and didnt merge with the next sample
                     @warn "Even after extending the simulation window up to $(end_idx_extended), load shedding is still occurring at the end of the window ($(end_idx_extended)) for sample $(sample). Consider increasing the 'max_extend_simulations'-parameter or checking the model formulation."
                 end
             
@@ -165,5 +193,5 @@ function reoptimise(df_expectation, sys, res_input, genAvSamples, lineAvSamples;
 
     @info "Re-optimisation completed.\n     Total number of simulations: $(total_number_of_simulations)\n     + extended simulations: $(total_number_of_extended_simulations)."
    
-    return load_shedding_output
+    return (:shortfall,) == saving_details ? (res_input.shortfall .+ sched_change_output.shortfall) : sched_change_output
 end
