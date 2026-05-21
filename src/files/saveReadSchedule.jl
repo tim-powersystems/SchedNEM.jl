@@ -84,7 +84,7 @@ end
 Saving the SchedChangeData to a file.
 
 """
-function save_schedule_change(scheduleChange::SchedChangeData, filename::String; limit=[:shortfall, :drs_borrowing])
+function save_schedule_change(scheduleChange::SchedChangeData, filename::String; limit::Tuple=(:all,))
 
     if isfile(filename)
         @warn "File already exists and will be overwritten: $filename"
@@ -98,8 +98,12 @@ function save_schedule_change(scheduleChange::SchedChangeData, filename::String;
     if filename[end-3:end] != ".csv"
         filename *= ".csv"
     end
-    
-    all_keys = get_keys(scheduleChange)
+    if limit == (:all,)
+        limit = get_keys(scheduleChange)
+        all_keys = limit
+    else
+        all_keys = get_keys(scheduleChange)
+    end
     full_table = DataFrames.DataFrame(key=String[], id=Int[], timestep=Int[], sample=Int[], value=Int[])
 
     for key in intersect(all_keys, limit)
