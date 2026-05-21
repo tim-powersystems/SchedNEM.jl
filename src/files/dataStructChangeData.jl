@@ -34,13 +34,13 @@ struct SchedChangeData{N, Ngens, Nstors, Ngenstors, Ndrs, Nregions, Nsamples}
     keys::Tuple
 
     # Constructor without arguments, initializes all fields with empty matrices
-    function SchedChangeData(sys::PRAS.SystemModel; N=0, Nsamples=100, include_fields=[:shortfall, :drs_borrowing, :stor_energy])
+    function SchedChangeData(sys::PRAS.SystemModel; N::Int=0, Nsamples::Int=100, include_fields::Tuple=(:all,))
         if N == 0
             N = PRAS.get_params(sys)[1]
         end
 
-        if include_fields == :all
-            include_fields = [:shortfall, :drs_borrowing, :stor_energy, :stor_charging, :stor_discharging, :genstor_charging, :genstor_discharging, :genstor_energy, :drs_payback, :gon, :stup, :shdw, :p_gen, :p_gen_max]
+        if include_fields == (:all,)
+            include_fields = (:shortfall, :drs_borrowing, :stor_energy, :stor_charging, :stor_discharging, :genstor_charging, :genstor_discharging, :genstor_energy, :drs_payback, :gon, :stup, :shdw, :p_gen, :p_gen_max)
         end
 
         # Generator fields
@@ -77,9 +77,9 @@ struct SchedChangeData{N, Ngens, Nstors, Ngenstors, Ndrs, Nregions, Nsamples}
             zeros(Int, Nregions, N, Nsamples), include_fields)
     end
 
-    function SchedChangeData(params; include_fields=(:all,))
-         if include_fields == :all
-            include_fields = [:shortfall, :drs_borrowing, :stor_energy, :stor_charging, :stor_discharging, :genstor_charging, :genstor_discharging, :genstor_energy, :drs_payback, :gon, :stup, :shdw, :p_gen, :p_gen_max]
+    function SchedChangeData(params; include_fields::Tuple=(:all,))
+         if include_fields == (:all,)
+            include_fields = (:shortfall, :drs_borrowing, :stor_energy, :stor_charging, :stor_discharging, :genstor_charging, :genstor_discharging, :genstor_energy, :drs_payback, :gon, :stup, :shdw, :p_gen, :p_gen_max)
          end
         N, Ngens, Nstors, Ngenstors, Ndrs, Nregions, Nsamples = params
         new{params...}(
@@ -154,6 +154,9 @@ function get_value(res::SchedChangeData{N, Ngens, Nstors, Ngenstors, Ndrs, Nregi
     end
 end
 
+get(res::SchedChangeData{N, Ngens, Nstors, Ngenstors, Ndrs, Nregions, Nsamples}, key::Symbol, default) where {N, Ngens, Nstors, Ngenstors, Ndrs, Nregions, Nsamples} =
+    key in get_keys(res) ? get_value(res, key) : default
+
 get_keys(input::SchedChangeData{N, Ngens, Nstors, Ngenstors, Ndrs, Nregions, Nsamples}) where {N, Ngens, Nstors, Ngenstors, Ndrs, Nregions, Nsamples} = input.keys
 
 function set_value!(res::SchedChangeData{N, Ngens, Nstors, Ngenstors, Ndrs, Nregions, Nsamples}, key, value) where {N, Ngens, Nstors, Ngenstors, Ndrs, Nregions, Nsamples}
@@ -200,11 +203,9 @@ Function to write some data in a slice of the full SchedChangeData object
 - idxs_window: The indices in the window result
 
 """
-function update_SchedChangeData!(res::SchedChangeData, original_res::SchedData, idxs_update, res_window, idxs_window, idx_sample; 
-      limit_keys=[:shortfall, :drs_borrowing, :stor_energy])
+function update_SchedChangeData!(res::SchedChangeData, original_res::SchedData, idxs_update, res_window, idxs_window, idx_sample)
    
-    all_keys = get_keys(res)
-    for key in intersect(all_keys, limit_keys)
+    for key in get_keys(res)
         vals_window = get(res_window, key, NaN)
         vals_original = get_value(original_res, key)
         updated_vals = get_value(res, key)
