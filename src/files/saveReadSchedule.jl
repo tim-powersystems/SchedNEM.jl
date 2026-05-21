@@ -14,7 +14,11 @@ function save_schedule(schedule::SchedData, filename::String)
         mkpath(dirname(filename))
         @debug "Created directory: $(dirname(filename))"
     end
-    
+
+    if filename[end-2:end] != ".h5"
+        filename *= ".h5"
+    end
+
     # Save the schedule to an HDF5 file
     HDF5.h5open(filename, "w") do f
 
@@ -73,3 +77,44 @@ function read_schedule(filename::String)
 
     return sched
 end
+# ===========================================================================================================
+"""
+    save_schedule_change(schedule::SchedChangeData, filename::String)
+
+Saving the SchedChangeData to a file.
+
+"""
+function save_schedule_change(scheduleChange::SchedChangeData, filename::String; limit=[:shortfall, :drs_borrowing])
+
+    if isfile(filename)
+        @warn "File already exists and will be overwritten: $filename"
+    end
+
+    if !isdir(dirname(filename))
+        mkpath(dirname(filename))
+        @debug "Created directory: $(dirname(filename))"
+    end
+
+    if filename[end-3:end] != ".csv"
+        filename *= ".csv"
+    end
+    
+    all_keys = get_keys(scheduleChange)
+    full_table = DataFrames.DataFrame(key=String[], id=Int[], timestep=Int[], sample=Int[], value=Int[])
+
+    for key in intersect(all_keys, limit)
+        vals = SchedNEM.get_value(scheduleChange, key)
+
+        # First add the dimension information
+        push!(full_table, (string.(key), size(vals,1), size(vals, 2), size(vals, 3), 0))
+
+        coords = findall(vals .!= 0)                # linear indices
+        cart = Tuple.(CartesianIndices(vals)[coords])      # vector of (i,j,k)
+        for c in cart
+            push!(full_table, (string.(key), c[1], c[2], c[3], vals[c...]))
+        end
+    end
+
+    CSV.write(filename, full_table)
+end
+
