@@ -5,7 +5,10 @@ First entry contains the dimensions of the matrix, followed by the indices and v
 
 """
 function saveSfMatrix(SfMatrix, filename)
-    coords = findall(SfMatrix .> 0)                # linear indices
+    coords = findall(SfMatrix .!= 0)                # linear indices
+    if any((SfMatrix .< 0))
+        @warn "Matrix contains negative values!! Probably saving a wrong matrix?! Saved to: $filename"
+    end
     cart = Tuple.(CartesianIndices(SfMatrix)[coords])      # vector of (i,j,k)
     dims = size(SfMatrix)
     I = [c[1] for c in cart]; J = [c[2] for c in cart]; K = [c[3] for c in cart]

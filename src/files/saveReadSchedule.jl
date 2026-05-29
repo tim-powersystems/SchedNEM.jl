@@ -122,3 +122,50 @@ function save_schedule_change(scheduleChange::SchedChangeData, filename::String;
     CSV.write(filename, full_table)
 end
 
+
+function read_sf_from_schedule_change(filename::String)
+    if !isfile(filename)
+        error("File not found: $filename")
+    end
+    df = CSV.read(filename, DataFrames.DataFrame)
+    sf_df = filter(row -> row.key == "shortfall", df)
+    return sf_df
+end
+
+
+
+
+function read_schedule_change(filename::String)
+    if !isfile(filename)
+        error("File not found: $filename")
+    end
+
+    df = CSV.read(filename, DataFrames.DataFrame)
+
+    # Extract dimension information
+    dim_info = Dict{String, Tuple{Int, Int, Int}}()
+    for row in eachrow(df)
+        if row.id == 0 && row.timestep == 0 && row.sample == 0
+            dim_info[row.key] = (row.value, row.timestep, row.sample)
+        end
+    end
+
+    # Initialize SchedChangeData with the extracted dimensions
+    schedChange = SchedChangeData((dim_info["stor_charging"][1], dim_info["stor_charging"][2], dim_info["stor_charging"][3]))
+
+    # Fill in the values from the DataFrame
+    for row in eachrow(df)
+        if row.id != 0 || row.timestep != 0 || row.sample != 0
+            key_sym = Symbol(row.key)
+            if key_sym in get_keys(schedChange)
+                vals = get_value(schedChange, key_sym)
+                vals[row.id, row.timestep, row.sample] = row.value
+                set_value!(schedChange, key_sym, vals)
+            else
+                @warn "Key $(row.key) in CSV does not match any field in SchedChangeData. Skipping."
+            end
+        end
+    end
+
+    return schedChange
+end    
