@@ -93,7 +93,7 @@ function reoptimise(df_expectation, sys, res_input, genAvSamples, lineAvSamples;
         hydro_parameters=hydro_parameters)
 
     for sample in 1:Nsamples
-        if sample % 1 == 0
+        if sample % 10 == 0
             println("     $sample/$Nsamples")
         end
 
