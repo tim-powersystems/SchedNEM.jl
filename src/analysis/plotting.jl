@@ -21,11 +21,13 @@ function plot_timeseries_results(m, sys; region::Vector=[], title="", legend=:ou
     idx_pv = intersect(findall(n -> n in ["RoofPV", "LargePV"], sys.generators.categories), all_gens_in_region)
     idx_w = intersect(findall(n -> n in ["Wind"], sys.generators.categories), all_gens_in_region)
     ixd_gas = intersect(findall(n -> n in ["CCGT", "OCGT", "Hydrogen-based gas turbines"], sys.generators.categories), all_gens_in_region)
-    idx_other = setdiff(all_gens_in_region, vcat(idx_pv, idx_w, ixd_gas))
+    idx_diesel = intersect(findall(n -> n in ["Diesel"], sys.generators.categories), all_gens_in_region)
+    idx_other = setdiff(all_gens_in_region, vcat(idx_pv, idx_w, ixd_gas, idx_diesel))
 
     gen_pv = sum(value.(m[:p_gen][idx_pv, :]); dims=1, init=0.0)[:]
     gen_w = sum(value.(m[:p_gen][idx_w, :]); dims=1, init=0.0)[:]
     gen_gas = sum(value.(m[:p_gen][ixd_gas, :]), dims=1, init=0.0)[:]
+    gen_diesel = sum(value.(m[:p_gen][idx_diesel, :]), dims=1, init=0.0)[:]
     gen_other = sum(value.(m[:p_gen][idx_other, :]), dims=1, init=0.0)[:]
 
     if m[:Nstors] > 0
@@ -84,7 +86,7 @@ function plot_timeseries_results(m, sys; region::Vector=[], title="", legend=:ou
     shed = sum(value.(m[:load_shedding][region, :]), dims=1)[:] # Sum over all regions in the vector
 
     t = 1:length(dem)
-    gen_stack = hcat(gen_other, gen_gas, gen_w, gen_pv, genstor_discharge, stor_discharge, p_import, shed, drs_dsp_borrow, drs_ev_borrow)
+    gen_stack = hcat(gen_other, gen_gas, gen_diesel, gen_w, gen_pv, genstor_discharge, stor_discharge, p_import, shed, drs_dsp_borrow, drs_ev_borrow)
     charge_stack = hcat(-genstor_charge, -stor_charge, -p_export, -drs_dsp_payback, -drs_ev_payback)
 
     x = vcat(repeat(0.5:1.0:length(dem), inner=2)[2:end], length(dem) + 0.5)
@@ -93,10 +95,10 @@ function plot_timeseries_results(m, sys; region::Vector=[], title="", legend=:ou
     y_dem = repeat(dem, inner=2)
     y_dem_net = repeat(dem .- drs_dsp_borrow .- drs_ev_borrow, inner=2)
 
-    comp_labels = ["Coal" "Gas" "Wind" "Solar PV" "Hydro" "Battery" "Imports/Exports" "Load shedding" "DSP" "EV (shifting)"]
+    comp_labels = ["Coal" "Gas" "Diesel" "Wind" "Solar PV" "Hydro" "Battery" "Imports/Exports" "Load shedding" "DSP" "EV (shifting)"]
     comp_labels[findall(x -> x == 0.0, sum(gen_stack, dims=1)[:])] .= ""
 
-    plt = Plots.areaplot(x, y_pos ./ 1e3, color=[:black :grey 8 5 10 11 3 :red :orange :blue], fillalpha = 0.8, 
+    plt = Plots.areaplot(x, y_pos ./ 1e3, color=[:black :grey 2 8 5 10 11 3 :red :orange :blue], fillalpha = 0.8, 
     labels = comp_labels, lw=0, palette=:Spectral_11, legend=legend,
     size=(700, 400))
     Plots.areaplot!(plt, x, y_neg ./ 1e3, color=[10 11 3 :orange :blue], fillalpha = 0.8, labels=["" ""], lw=0, palette=:Spectral_11)
