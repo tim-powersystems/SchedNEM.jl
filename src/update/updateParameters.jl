@@ -92,7 +92,7 @@ function update_model_parameters!(m, sys, start_index; end_index::Int=0, initial
 
     # Update generator-storage parameters
     if Ngenstors > 0
-        set_parameter_value.(m[:genstor_charge_cap][:,t], sys.generatorstorages.charge_capacity[:, idxs])
+        set_parameter_value.(m[:genstor_charge_cap][:,t], sys.generatorstorages.gridwithdrawal_capacity[:, idxs])
         set_parameter_value.(m[:genstor_discharge_cap][:,t], sys.generatorstorages.discharge_capacity[:, idxs])
         set_parameter_value.(m[:genstor_energy_cap][:,t_full], sys.generatorstorages.energy_capacity[:, idxs_full])
         set_parameter_value.(m[:genstor_inflow][:,t_full], sys.generatorstorages.inflow[:, idxs_full])
